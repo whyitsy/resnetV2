@@ -60,17 +60,18 @@ resNet34.load_state_dict(torch.load(pre_weight_path),strict=False)
 in_channel = resNet34.fc.in_features
 resNet34.fc = torch.nn.Linear(in_channel,5)
 
+# freeze后acc降低很多，还是要一起训练
 # freeze除了最后一层的其它层权重----V1没有freeze
-for name,parm in resNet34.named_parameters():
-    # print(name) # 返回展平后每一层的名字
-    if "fc" not in name:
-        parm.requires_grad = False
+# for name,parm in resNet34.named_parameters():
+#     # print(name) # 返回展平后每一层的名字
+#     if "fc" not in name:
+#         parm.requires_grad = False
 
 resNet34.to(device)
 
 # 超参数
-batch_size = 16
-epochs = 3 # 微调
+batch_size = 32
+epochs = 5 # 微调
 loss_fn = torch.nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(resNet34.parameters(),lr=0.0001)
 save_path = "./resnet34.pth"
@@ -92,16 +93,19 @@ test_iter = torch.utils.data.DataLoader(dataset=test_dataset,batch_size=batch_si
     通常先调用 model.eval()，然后再使用 torch.no_grad() 临时关闭梯度计算
 问题3:如何统计训练和测试时的数据
     loss_fn返回的loss是一个batch的总损失,所有的输出也是以batch为单位
+    同时统计running_loss,最后输出一个epoch的running_loss/train_len
 '''
 # 开始
 for epoch in range(epochs):
     # 训练
     resNet34.train()
+    running_loss = 0.0
     for step,data in enumerate(train_iter):
         optimizer.zero_grad()
         imgs,labels = data
         outputs = resNet34(imgs.to(device))
         loss = loss_fn(outputs,labels.to(device)) # loss是这个batch的总损失
+        running_loss += loss.item()
         loss.backward() # 反向传播计算梯度，这叫做自动求导吗？
         optimizer.step() # 更新权重
 
@@ -127,7 +131,7 @@ for epoch in range(epochs):
             best_acc = acc
             torch.save(resNet34.state_dict(),save_path)
         
-        print("epoch{}_test,acc={:.5f}".format(epoch+1,acc))
+        print("epoch{}_test,running_loss={:.5f},acc={:.5f}".format(epoch+1,running_loss/train_len,acc))
 
 
 print("Training Finished!")
