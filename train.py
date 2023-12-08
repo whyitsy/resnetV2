@@ -1,37 +1,44 @@
 import torch
-import torch.utils.data
+from torch.utils.data import DataLoader
 import torchvision
 from torchvision import transforms
 import json
-
+import tqdm
+import torch_directml
+# flower_photos directml 训练时1.5it/s 验证时6it/s batch_size=32
+'''
+FIFAR-10:
+    directml:训练时1.5it/s 验证时12it/s batch_size=32 一个epoch 18min
+'''
 from Resnet34 import ResNet34
 
-device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+
+device = torch_directml.device()
 print(f"use {device}")
 
 # 数据预处理
 data_transform = {
     "train": transforms.Compose([
-        # transforms.Resize(256),# 使用Resize还是RandomResizedCrop
-        transforms.RandomResizedCrop(224),
+        transforms.Resize(224),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5],std=[0.5, 0.5, 0.5])
     ]),
     "test":transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.5, 0.5, 0.5],std=[0.5, 0.5, 0.5])
     ])
 }
 
 # 加载训练集
-train_dataset = torchvision.datasets.ImageFolder("./flower_photos/train",data_transform["train"])
+train_dataset = torchvision.datasets.CIFAR10(root="./data/CIFAR10",transform=data_transform["train"],
+                                             train=True,download=False)
 train_len = len(train_dataset)
 
 # 加载测试集
-test_dataset = torchvision.datasets.ImageFolder("./flower_photos/test",data_transform["test"])
+test_dataset = torchvision.datasets.CIFAR10(root="./data/CIFAR10",transform=data_transform["test"],
+                                            train=False,download=False)
 test_len = len(test_dataset)
 
 # 保存分类索引
@@ -58,7 +65,7 @@ resNet34.load_state_dict(torch.load(pre_weight_path),strict=False)
 
 # 修改分类个数
 in_channel = resNet34.fc.in_features
-resNet34.fc = torch.nn.Linear(in_channel,5)
+resNet34.fc = torch.nn.Linear(in_channel,10)
 
 # freeze后acc降低很多，还是要一起训练
 # freeze除了最后一层的其它层权重----V1没有freeze
@@ -79,9 +86,9 @@ save_path = "./resnet34.pth"
 # 加载训练集迭代器----DataLoader()在哪个包里面？
 # 这里有个bug？也许，在import的时候会有提示，但是在代码中就没有提示
 # 但实际上好像是pylance的问题，卸载pylance后就有提示了
-train_iter = torch.utils.data.DataLoader(dataset=train_dataset,batch_size=batch_size,
+train_iter = DataLoader(dataset=train_dataset,batch_size=batch_size,
                                          shuffle=True,drop_last=True)
-test_iter = torch.utils.data.DataLoader(dataset=test_dataset,batch_size=batch_size,
+test_iter = DataLoader(dataset=test_dataset,batch_size=batch_size,
                                          shuffle=True,drop_last=True)
 
 '''
@@ -100,7 +107,7 @@ for epoch in range(epochs):
     # 训练
     resNet34.train()
     running_loss = 0.0
-    for step,data in enumerate(train_iter):
+    for step,data in tqdm.tqdm(enumerate(train_iter),desc="Train"):
         optimizer.zero_grad()
         imgs,labels = data
         outputs = resNet34(imgs.to(device))
@@ -120,7 +127,7 @@ for epoch in range(epochs):
     with torch.no_grad():
         acc = 0.0
         total_right = 0
-        for data in test_iter:
+        for data in tqdm.tqdm(test_iter,desc="Validation"):
             imgs,labels = data
             outputs = resNet34(imgs.to(device))
             # 累计正确个数----刚刚没有把labels放入device,在GPU上跑的时候没有报错,会不会是把训练最后一个batch的labels拿来作对比了再跑一下就知道了
