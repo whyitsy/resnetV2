@@ -4,7 +4,7 @@ import torchvision
 from torchvision import transforms
 import json
 import tqdm
-import torch_directml
+# import torch_directml
 # flower_photos directml 训练时1.5it/s 验证时6it/s batch_size=32
 '''
 FIFAR-10:
@@ -12,8 +12,10 @@ FIFAR-10:
 '''
 from Resnet34 import ResNet34
 
-
-device = torch_directml.device()
+device = ("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch_directml.device()
+# .to("xpu")还有bug
+# device = ("xpu" if torch.xpu.is_available() else "cpu")
 print(f"use {device}")
 
 # 数据预处理
@@ -32,13 +34,13 @@ data_transform = {
 }
 
 # 加载训练集
-train_dataset = torchvision.datasets.CIFAR10(root="./data/CIFAR10",transform=data_transform["train"],
-                                             train=True,download=False)
+train_dataset = torchvision.datasets.CIFAR10(root="./data",transform=data_transform["train"],
+                                             train=True,download=True)
 train_len = len(train_dataset)
 
 # 加载测试集
-test_dataset = torchvision.datasets.CIFAR10(root="./data/CIFAR10",transform=data_transform["test"],
-                                            train=False,download=False)
+test_dataset = torchvision.datasets.CIFAR10(root="./data",transform=data_transform["test"],
+                                            train=False,download=True)
 test_len = len(test_dataset)
 
 # 保存分类索引
@@ -51,16 +53,16 @@ test_len = len(test_dataset)
 class_dict是返回类别得到字典,但key是类别,value是index, 需要将k,v翻转一下
 1、使用dict.items()返回字典的k,v对 2、使用python的一行复合代码将返回的k,v直接组成新的v,k对放入字典
 '''
-class_dict = train_dataset.class_to_idx
-class_index = { value:key for key,value in class_dict.items()}
-with open("class_index.json","w") as f:
-    json.dump(class_index,f,indent=4)
+# class_dict = train_dataset.class_to_idx
+# class_index = { value:key for key,value in class_dict.items()}
+# with open("class_index.json","w") as f:
+#     json.dump(class_index,f,indent=4)
 
 # 创建网络 
 resNet34 = ResNet34()
 
 # 加载预训练权重----使用torch.load需要使用导入的Resnet类，返回网络的state_ditc
-pre_weight_path = "resnet34-b627a593.pth"
+pre_weight_path = "./resnet34-b627a593.pth"
 resNet34.load_state_dict(torch.load(pre_weight_path),strict=False)
 
 # 修改分类个数
@@ -74,7 +76,6 @@ resNet34.fc = torch.nn.Linear(in_channel,10)
 #     if "fc" not in name:
 #         parm.requires_grad = False
 
-resNet34.to(device)
 
 # 超参数
 batch_size = 32
@@ -102,6 +103,10 @@ test_iter = DataLoader(dataset=test_dataset,batch_size=batch_size,
     loss_fn返回的loss是一个batch的总损失,所有的输出也是以batch为单位
     同时统计running_loss,最后输出一个epoch的running_loss/train_len
 '''
+
+resNet34 = resNet34.to(device)
+loss_fn = loss_fn.to(device)
+
 # 开始
 for epoch in range(epochs):
     # 训练
